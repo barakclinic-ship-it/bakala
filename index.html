@@ -116,7 +116,8 @@ textarea.inp{min-height:96px;resize:vertical}
 .dactions .ed{color:var(--blue-d)}
 
 /* fab */
-.fab{position:fixed;bottom:calc(24px + env(safe-area-inset-bottom));left:24px;height:62px;padding:0 26px 0 22px;border-radius:20px;background:var(--tint2);color:#0b3a8c;font-weight:700;font-size:19px;display:flex;align-items:center;gap:10px;box-shadow:var(--shadow);z-index:6}
+.fab{height:62px;padding:0 26px 0 22px;border-radius:20px;background:var(--tint2);color:#0b3a8c;font-weight:700;font-size:19px;display:flex;align-items:center;gap:10px;box-shadow:var(--shadow);z-index:6}
+.fabs{position:fixed;bottom:calc(24px + env(safe-area-inset-bottom));left:24px;display:flex;flex-direction:row-reverse;gap:12px;z-index:6}
 .fab svg.i{width:26px;height:26px}
 
 /* sheets */
@@ -239,7 +240,10 @@ textarea.inp{min-height:96px;resize:vertical}
   </section>
 </div>
 
-<button class="fab hidden" id="addBtn"><svg class="i"><use href="#i-plus"/></svg>הוספה</button>
+<div class="fabs hidden" id="fabs">
+  <button class="fab" id="addBtn"><svg class="i"><use href="#i-plus"/></svg>הוספה</button>
+  <button class="fab" id="bakBtn"><svg class="i"><use href="#i-down"/></svg>גיבוי</button>
+</div>
 
 <!-- EDIT -->
 <div class="modal" id="editModal"><div class="sheet">
@@ -396,7 +400,7 @@ document.addEventListener('keydown',e=>{
 function toGame(){
   dropResume();mkey=null;stopGuard();bannerSnoozed=false;masterRaw=null;entries=[];curId=null;clearTimeout(timer);closeM();
   $('search').value='';['setup','login','listView','detailView'].forEach(s=>$(s).classList.add('hidden'));
-  $('addBtn').classList.add('hidden');
+  $('fabs').classList.add('hidden');
   document.querySelectorAll('.inp').forEach(i=>i.value='');
   $('game').classList.remove('hidden');shuffle();
 }
@@ -434,7 +438,7 @@ const load=()=>{try{return JSON.parse(localStorage.getItem(STORE))}catch(e){retu
 const persist=()=>localStorage.setItem(STORE,JSON.stringify(store));
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function toast(t){const el=$('toast');el.textContent=t;el.classList.add('on');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('on'),1700)}
-function show(id){['setup','login','listView','detailView'].forEach(s=>$(s).classList.toggle('hidden',s!==id));$('addBtn').classList.toggle('hidden',id!=='listView');scrollTo(0,0)}
+function show(id){['setup','login','listView','detailView'].forEach(s=>$(s).classList.toggle('hidden',s!==id));$('fabs').classList.toggle('hidden',id!=='listView');scrollTo(0,0)}
 function openM(id){$(id).classList.add('on')}
 function closeM(){document.querySelectorAll('.modal').forEach(m=>m.classList.remove('on'))}
 document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m||e.target.closest('[data-close]'))closeM()}));
@@ -600,6 +604,7 @@ function openEdit(e){
   openM('editModal');setTimeout(()=>$('fTitle').focus(),80);
 }
 $('addBtn').onclick=()=>openEdit(null);
+$('bakBtn').onclick=async()=>{if(store.mailUrl){toast(await sendMail()?'גיבוי נשלח למייל ✓':'השליחה נכשלה')}else shareBak()};
 $('genBtn').onclick=()=>{const cs='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*?';$('fPass').value=[...rnd(16)].map(x=>cs[x%cs.length]).join('')};
 $('saveBtn').onclick=async()=>{
   const title=$('fTitle').value.trim();if(!title){toast('חסר שם');$('fTitle').focus();return}
