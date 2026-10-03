@@ -278,7 +278,7 @@ textarea.inp{min-height:96px;resize:vertical}
   <button class="mrow" id="bakOut"><span class="ic"><svg class="i"><use href="#i-down"/></svg></span>גיבוי מוצפן</button>
   <button class="mrow" id="bakIn"><span class="ic"><svg class="i"><use href="#i-up"/></svg></span>שחזור מגיבוי</button>
   <div class="sep"></div>
-  <button class="mrow" id="guardBtn"><span class="ic"><svg class="i"><use href="#i-eye"/></svg></span>הסתרה אוטומטית</button>
+  <button class="mrow" id="guardBtn"><span class="ic"><svg class="i"><use href="#i-eye"/></svg></span>זיהוי פנים</button>
   <div class="sep"></div>
   <button class="mrow red" id="resetBtn"><span class="ic"><svg class="i"><use href="#i-trash"/></svg></span>מחיקת כל הנתונים מהמכשיר</button>
 </div></div>
@@ -308,9 +308,8 @@ textarea.inp{min-height:96px;resize:vertical}
 <!-- GUARD -->
 <div class="modal" id="guardModal"><div class="sheet">
   <div class="grab"></div>
-  <h2>הסתרה אוטומטית</h2>
-  <div class="tog"><span>הטיה פתאומית של הטלפון</span><input type="checkbox" class="sw" id="gTilt"></div>
-  <div class="tog"><span>מצלמה – רק כשאני מול המסך</span><input type="checkbox" class="sw" id="gCam"></div>
+  <h2>זיהוי פנים</h2>
+  <div class="tog"><span>מציג רק כשהפנים שלי מול המסך</span><input type="checkbox" class="sw" id="gCam"></div>
   <div id="faceBox" class="hidden">
     <div class="camwrap" id="camWrap"><video id="camPrev" playsinline muted autoplay></video></div>
     <div class="fstat" id="fStat"></div>
@@ -743,14 +742,14 @@ $('resetBtn').onclick=()=>{
 
 /* =================== GUARD (auto-hide) =================== */
 const FACE_CDN='https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/';
-let guard={tilt:true,cam:false},faces=[],camStream=null,looping=false,guardOn=false,gmode='in';
+let guard={tilt:false,cam:true},faces=[],camStream=null,looping=false,guardOn=false,gmode='in';
 let curtain=false,curtainT=null,tiltBad=false,faceBad=false,lastFaceOk=0,faceOkSince=0;
 const FACE_BACK_MS=1000;
 const ori={b:null,g:null,fb:0,fg:0,okSince:0};
 const TILT_ON=55,TILT_BACK=30; // degrees: hide past 55°, come back within 30° of where you held it
 
 function askPerms(){try{if(window.DeviceOrientationEvent&&typeof DeviceOrientationEvent.requestPermission==='function')DeviceOrientationEvent.requestPermission().catch(()=>{})}catch(e){}}
-function loadGuardCfg(){guard=Object.assign({tilt:true,cam:false},store.guard||{})}
+function loadGuardCfg(){guard=Object.assign({cam:true},store.guard||{});guard.tilt=false} // face only – no movement detection
 function saveGuardCfg(){store.guard=guard;persist()}
 async function loadFaces(){faces=[];if(store.face&&mkey){try{faces=JSON.parse(td.decode(await dec(mkey,store.face)))}catch(e){}}}
 async function saveFaces(){store.face=faces.length?await enc(mkey,te.encode(JSON.stringify(faces))):null;persist()}
@@ -868,12 +867,11 @@ document.addEventListener('visibilitychange',()=>{
 
 /* settings sheet */
 $('guardBtn').onclick=async()=>{
-  closeM();$('gTilt').checked=guard.tilt;$('gCam').checked=guard.cam;
+  closeM();$('gCam').checked=guard.cam;
   $('faceBox').classList.toggle('hidden',!guard.cam);$('fStat').textContent='';
   openM('guardModal');
   if(guard.cam&&camStream){$('camPrev').srcObject=camStream;$('camPrev').play().catch(()=>{})}
 };
-$('gTilt').onchange=e=>{askPerms();guard.tilt=e.target.checked;saveGuardCfg();ori.b=null;tiltBad=false;evalGuard()};
 $('gCam').onchange=async e=>{
   guard.cam=e.target.checked;saveGuardCfg();$('faceBox').classList.toggle('hidden',!guard.cam);
   if(guard.cam){$('fStat').textContent='טוען…';if(!await startCamGuard()){guard.cam=false;e.target.checked=false;saveGuardCfg();$('faceBox').classList.add('hidden')}}
