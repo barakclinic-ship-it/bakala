@@ -744,7 +744,8 @@ $('resetBtn').onclick=()=>{
 /* =================== GUARD (auto-hide) =================== */
 const FACE_CDN='https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/';
 let guard={tilt:true,cam:false},faces=[],camStream=null,looping=false,guardOn=false,gmode='in';
-let curtain=false,curtainT=null,tiltBad=false,faceBad=false,lastFaceOk=0;
+let curtain=false,curtainT=null,tiltBad=false,faceBad=false,lastFaceOk=0,faceOkSince=0;
+const FACE_BACK_MS=1000;
 const ori={b:null,g:null,fb:0,fg:0,okSince:0};
 const TILT_ON=55,TILT_BACK=30; // degrees: hide past 55°, come back within 30° of where you held it
 
@@ -767,9 +768,9 @@ window.addEventListener('deviceorientation',e=>{
   const b=e.beta,g=e.gamma||0;
   if(ori.b==null){ori.b=b;ori.g=g;return}
   if(!tiltBad){
-    if(Math.abs(b-ori.b)>TILT_ON||Math.abs(g-ori.g)>TILT_ON){tiltBad=true;ori.fb=ori.b;ori.fg=ori.g;ori.okSince=0;evalGuard();return}
+    if(Math.abs(b-ori.b)>TILT_ON||Math.abs(g-ori.g)>TILT_ON){tiltBad=true;faceOkSince=0;ori.fb=ori.b;ori.fg=ori.g;ori.okSince=0;evalGuard();return}
     ori.b+=(b-ori.b)*.03;ori.g+=(g-ori.g)*.03;
-  }else{
+  }else if(!(guard.cam&&camStream)){
     if(Math.abs(b-ori.fb)<TILT_BACK&&Math.abs(g-ori.fg)<TILT_BACK){
       if(!ori.okSince)ori.okSince=Date.now();
       else if(Date.now()-ori.okSince>400){tiltBad=false;ori.b=b;ori.g=g;evalGuard()}
@@ -812,12 +813,20 @@ async function faceLoop(){
     try{
       if($('camv').readyState>=2){
         const dets=await scan(),ok=isMe(dets);
-        if(ok){lastFaceOk=Date.now();if(faceBad){faceBad=false;evalGuard()}}
-        else if(!faceBad&&Date.now()-lastFaceOk>(gmode==='pre'?2500:1200)){faceBad=true;evalGuard()}
+        const now=Date.now();
+        if(ok){
+          lastFaceOk=now;if(!faceOkSince)faceOkSince=now;
+          // only my face, steadily for ~1s → back to the passwords (also clears a sharp-movement hide)
+          if((faceBad||tiltBad)&&now-faceOkSince>=FACE_BACK_MS){faceBad=false;if(tiltBad){tiltBad=false;ori.b=null}evalGuard()}
+        }else{
+          faceOkSince=0;
+          // someone else / an extra face → hide at once; no face at all → after a short grace
+          if(!faceBad&&(dets.length>1||(dets.length===1&&gmode==='in')||now-lastFaceOk>(gmode==='pre'?2500:1200))){faceBad=true;evalGuard()}
+        }
         faceStatus(dets,ok);
       }
     }catch(e){}
-    await new Promise(r=>setTimeout(r,curtain?450:650));
+    await new Promise(r=>setTimeout(r,curtain?350:400));
   }
   looping=false;
 }
