@@ -400,7 +400,7 @@ function toGame(){
   document.querySelectorAll('.inp').forEach(i=>i.value='');
   $('game').classList.remove('hidden');shuffle();
 }
-function openGate(){if(mkey&&awayLock){liftAway();return}if(mkey)toGame();$('game').classList.add('hidden');store=load();if(store&&store.v===1)renderLogin();else renderSetup()}
+function openGate(){if(mkey&&gmode==='in'&&(awayLock||curtain)){liftAway();return}if(mkey)toGame();$('game').classList.add('hidden');store=load();if(store&&store.v===1)renderLogin();else renderSetup()}
 document.querySelectorAll('[data-togame]').forEach(b=>b.onclick=toGame);
 
 /* =================== CRYPTO =================== */
@@ -741,6 +741,7 @@ const FACE_CDN='https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/';
 let guard={tilt:true,cam:false},faces=[],camStream=null,looping=false,guardOn=false,gmode='in';
 let curtain=false,curtainT=null,tiltBad=false,faceBad=false,lastFaceOk=0;
 const ori={b:null,g:null,fb:0,fg:0,okSince:0};
+const TILT_ON=55,TILT_BACK=30; // degrees: hide past 55°, come back within 30° of where you held it
 
 function askPerms(){try{if(window.DeviceOrientationEvent&&typeof DeviceOrientationEvent.requestPermission==='function')DeviceOrientationEvent.requestPermission().catch(()=>{})}catch(e){}}
 function loadGuardCfg(){guard=Object.assign({tilt:true,cam:false},store.guard||{})}
@@ -761,12 +762,12 @@ window.addEventListener('deviceorientation',e=>{
   const b=e.beta,g=e.gamma||0;
   if(ori.b==null){ori.b=b;ori.g=g;return}
   if(!tiltBad){
-    if(Math.abs(b-ori.b)>35||Math.abs(g-ori.g)>35){tiltBad=true;ori.fb=ori.b;ori.fg=ori.g;ori.okSince=0;evalGuard();return}
+    if(Math.abs(b-ori.b)>TILT_ON||Math.abs(g-ori.g)>TILT_ON){tiltBad=true;ori.fb=ori.b;ori.fg=ori.g;ori.okSince=0;evalGuard();return}
     ori.b+=(b-ori.b)*.03;ori.g+=(g-ori.g)*.03;
   }else{
-    if(Math.abs(b-ori.fb)<15&&Math.abs(g-ori.fg)<18){
+    if(Math.abs(b-ori.fb)<TILT_BACK&&Math.abs(g-ori.fg)<TILT_BACK){
       if(!ori.okSince)ori.okSince=Date.now();
-      else if(Date.now()-ori.okSince>500){tiltBad=false;ori.b=b;ori.g=g;evalGuard()}
+      else if(Date.now()-ori.okSince>400){tiltBad=false;ori.b=b;ori.g=g;evalGuard()}
     }else ori.okSince=0;
   }
 });
