@@ -796,40 +796,63 @@ async function startCam(){
   }catch(e){camStream=null;return false}
 }
 function stopCam(){if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null}$('camv').srcObject=null;$('camPrev').srcObject=null}
-const scan=()=>faceapi.detectAllFaces($('camv'),new faceapi.TinyFaceDetectorOptions({inputSize:224,scoreThreshold:.5})).withFaceLandmarks().withFaceDescriptors();
-function isMe(dets){
-  if(dets.length!==1)return false;
-  if(!faces.length)return true;
-  return faces.some(f=>faceapi.euclideanDistance(f,dets[0].descriptor)<.5);
+const DET_OPTS=()=>new faceapi.TinyFaceDetectorOptions({inputSize:320,scoreThreshold:.4});
+const scanRaw=()=>faceapi.detectAllFaces($('camv'),DET_OPTS()).withFaceLandmarks().withFaceDescriptors();
+// never let a stuck frame (camera paused in background) freeze the loop
+const scan=()=>Promise.race([scanRaw(),new Promise(r=>setTimeout(()=>r(null),2000))]);
+const MATCH=.56;           // face distance below this = me
+function meDist(d){let m=9;for(const f of faces){const x=faceapi.euclideanDistance(f,d);if(x<m)m=x}return m}
+function classify(dets){
+  // keep only real-size faces (ignore tiny background detections)
+  const v=$('camv'),minW=(v.videoWidth||320)*.12;
+  dets=dets.filter(d=>(d.detection?.box?.width??999)>=minW);
+  if(!dets.length)return'none';
+  if(dets.length>1)return'many';
+  if(!faces.length)return'me';
+  return meDist(dets[0].descriptor)<MATCH?'me':'other';
 }
-function faceStatus(dets,ok){
+function faceStatus(c){
   if(!$('guardModal').classList.contains('on'))return;
-  const w=$('camWrap');w.classList.toggle('ok',ok);w.classList.toggle('bad',!ok);
-  $('fStat').textContent=!dets.length?'לא רואה פנים':dets.length>1?'יש כאן יותר מאדם אחד':ok?(faces.length?'זה אתה ✓':'פנים זוהו ✓ (לא רשום – כל פנים ייחשבו)'):'לא מזוהה';
+  const ok=c==='me',w=$('camWrap');w.classList.toggle('ok',ok);w.classList.toggle('bad',!ok);
+  $('fStat').textContent={none:'לא רואה פנים',many:'יש כאן יותר מאדם אחד',other:'לא מזוהה',me:faces.length?'זה אתה ✓':'פנים זוהו ✓ (לא רשום – כל פנים ייחשבו)'}[c];
 }
-async function faceLoop(){
-  if(looping)return;looping=true;
-  while(guardOn&&guard.cam&&camStream){
-    try{
-      if($('camv').readyState>=2){
-        const dets=await scan(),ok=isMe(dets);
-        const now=Date.now();
-        if(ok){
-          lastFaceOk=now;if(!faceOkSince)faceOkSince=now;
-          // only my face, steadily for ~1s → back to the passwords (also clears a sharp-movement hide)
-          if(awayLock&&faces.length&&now-faceOkSince>=FACE_BACK_MS){liftAway();continue}
-          if((faceBad||tiltBad)&&now-faceOkSince>=FACE_BACK_MS){faceBad=false;if(tiltBad){tiltBad=false;ori.b=null}evalGuard()}
-        }else{
-          faceOkSince=0;
-          // someone else / an extra face → hide at once; no face at all → after a short grace
-          if(!faceBad&&(dets.length>1||(dets.length===1&&gmode==='in')||now-lastFaceOk>(gmode==='pre'?2500:1200))){faceBad=true;evalGuard()}
+/* decisions are smoothed so one bad frame never flips the screen:
+   hide  – 2 frames in a row of someone else / more than one face, or no face for 1.5s
+   show  – 2 frames in a row of only me */
+let loopGen=0,meRun=0,badRun=0;
+function faceLoop(){
+  const gen=++loopGen;looping=true;meRun=0;badRun=0;
+  (async()=>{
+    while(gen===loopGen&&guardOn&&guard.cam&&camStream){
+      try{
+        if($('camv').readyState>=2){
+          const dets=await scan();
+          if(gen!==loopGen)break;
+          if(dets){
+            const c=classify(dets),now=Date.now();
+            if(c==='me'){
+              meRun++;badRun=0;lastFaceOk=now;
+              if(meRun>=2){
+                if(awayLock&&faces.length){liftAway()}
+                else if(faceBad||tiltBad){faceBad=false;if(tiltBad){tiltBad=false;ori.b=null}evalGuard()}
+              }
+            }else{
+              meRun=0;
+              if(c==='none'){badRun=0;if(!faceBad&&now-lastFaceOk>(gmode==='pre'?2500:1500)){faceBad=true;evalGuard()}}
+              else{
+                const real=gmode==='in'||c==='many';
+                badRun=real?badRun+1:0;
+                if(!faceBad&&badRun>=2){faceBad=true;evalGuard()}
+              }
+            }
+            faceStatus(c);
+          }
         }
-        faceStatus(dets,ok);
-      }
-    }catch(e){}
-    await new Promise(r=>setTimeout(r,curtain?350:400));
-  }
-  looping=false;
+      }catch(e){}
+      await new Promise(r=>setTimeout(r,300));
+    }
+    if(gen===loopGen)looping=false;
+  })();
 }
 async function startCamGuard(){
   if(!await startCam()){toast('אין גישה למצלמה');return false}
@@ -886,13 +909,13 @@ $('enrollBtn').onclick=async()=>{
     if(!camStream&&!await startCam())throw 0;
     await loadFaceApi();
     const got=[];
-    for(let k=0;k<20&&got.length<6;k++){
-      b.textContent=`מסתכל עליך… ${got.length}/6`;
-      const d=await scan();
+    for(let k=0;k<40&&got.length<12;k++){
+      b.textContent=`מסתכל עליך… ${got.length}/12 – הזז מעט את הראש`;
+      const d=(await scan())||[];
       if(d.length===1)got.push(Array.from(d[0].descriptor));
       await new Promise(r=>setTimeout(r,250));
     }
-    if(got.length<4){toast('לא הצלחתי – נסה באור טוב יותר');}
+    if(got.length<6){toast('לא הצלחתי – נסה באור טוב יותר');}
     else{faces=got;await saveFaces();lastFaceOk=Date.now();toast('הפנים נרשמו ✓')}
   }catch(e){toast('אין גישה למצלמה')}
   b.disabled=false;b.textContent='רישום הפנים שלי';
