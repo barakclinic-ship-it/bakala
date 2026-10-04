@@ -279,7 +279,6 @@ textarea.inp{min-height:96px;resize:vertical}
   <button class="mrow" id="bakOut"><span class="ic"><svg class="i"><use href="#i-down"/></svg></span>גיבוי מוצפן</button>
   <button class="mrow" id="bakIn"><span class="ic"><svg class="i"><use href="#i-up"/></svg></span>שחזור מגיבוי</button>
   <div class="sep"></div>
-  <button class="mrow" id="guardBtn"><span class="ic"><svg class="i"><use href="#i-eye"/></svg></span>זיהוי פנים</button>
   <div class="sep"></div>
   <button class="mrow red" id="resetBtn"><span class="ic"><svg class="i"><use href="#i-trash"/></svg></span>מחיקת כל הנתונים מהמכשיר</button>
 </div></div>
@@ -380,23 +379,24 @@ document.querySelectorAll('.levels button').forEach(b=>b.onclick=()=>{document.q
 let sw=null;
 const avgX=t=>[...t].reduce((s,p)=>s+p.clientX,0)/t.length;
 const avgY=t=>[...t].reduce((s,p)=>s+p.clientY,0)/t.length;
-$('game').addEventListener('touchstart',e=>{
+document.addEventListener('touchstart',e=>{
   if(e.touches.length>=2)multi=true;
   if(e.touches.length>=3){sw={x:avgX(e.touches),y:avgY(e.touches)};sel=-1}
 },{passive:true});
-$('game').addEventListener('touchmove',e=>{
+document.addEventListener('touchmove',e=>{
   if(sw&&e.touches.length>=3){sw.lx=avgX(e.touches);sw.ly=avgY(e.touches)}
 },{passive:true});
-$('game').addEventListener('touchend',e=>{
-  if(sw&&sw.lx!=null){const dx=sw.lx-sw.x,dy=Math.abs(sw.ly-sw.y);if(dx>70&&dx>dy*1.5)openGate()}
+document.addEventListener('touchend',e=>{
+  if(sw&&sw.lx!=null){const dx=sw.lx-sw.x,dy=Math.abs(sw.ly-sw.y);if(dx>70&&dx>dy*1.5){sw=null;swipe()}}
   if(e.touches.length===0){sw=null;setTimeout(()=>multi=false,300)}
 },{passive:true});
 /* desktop fallback: press → (right arrow) 3 times quickly */
 let arrows=[];
 document.addEventListener('keydown',e=>{
-  if($('game').classList.contains('hidden')||e.key!=='ArrowRight')return;
+  if(e.key!=='ArrowRight')return;
+  if($('game').classList.contains('hidden')&&!(mkey&&gmode==='in'))return;
   const now=Date.now();arrows=arrows.filter(t=>now-t<1200);arrows.push(now);
-  if(arrows.length>=3){arrows=[];openGate()}
+  if(arrows.length>=3){arrows=[];swipe()}
 });
 function toGame(){
   dropResume();mkey=null;stopGuard();bannerSnoozed=false;masterRaw=null;entries=[];curId=null;clearTimeout(timer);closeM();
@@ -406,7 +406,17 @@ function toGame(){
   $('game').classList.remove('hidden');shuffle();
   setTimeout(bootFace,300);
 }
-function openGate(){if(mkey&&gmode==='in'&&(awayLock||curtain)){liftAway();return}if(mkey)toGame();$('game').classList.add('hidden');store=load();if(store&&store.v===1)renderLogin();else renderSetup()}
+function swipe(){
+  if(!$('game').classList.contains('hidden'))return openGate();
+  if(mkey&&gmode==='in')quickHide();
+}
+/* 3-finger swipe inside the app → puzzle; swipe again within a minute → straight back */
+function quickHide(){setTimeout(saveResume,0);
+  hiddenAt=Date.now();awayLock=true;sel=-1;closeM();savePos();
+  $('game').classList.remove('hidden');
+}
+function openGate(){
+  if(mkey&&gmode==='in'&&(awayLock||curtain)){liftAway();return}if(mkey)toGame();$('game').classList.add('hidden');store=load();if(store&&store.v===1)renderLogin();else renderSetup()}
 document.querySelectorAll('[data-togame]').forEach(b=>b.onclick=toGame);
 
 /* =================== CRYPTO =================== */
@@ -519,8 +529,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&!$('login').classLis
 
 /* =================== VAULT =================== */
 async function saveVault(){store.vault=await enc(mkey,te.encode(JSON.stringify(entries)));persist()}
-function openList(){show('listView');renderList();bump();if(!guardOn||gmode==='pre'){startGuard('in');checkMailBak()}}
-function bump(){clearTimeout(timer);if(mkey)timer=setTimeout(toGame,LOCK_MS)}
+function openList(){setTimeout(saveResume,0);show('listView');renderList();bump();if(!guardOn||gmode==='pre'){startGuard('in');checkMailBak()}}
+function bump(){} // no auto-lock timer
 ['click','keydown','touchstart','scroll'].forEach(ev=>document.addEventListener(ev,bump,{passive:true}));
 $('lockBtn').onclick=()=>{manualLocked=true;toGame()};
 
@@ -745,14 +755,14 @@ $('resetBtn').onclick=()=>{
 
 /* =================== GUARD (auto-hide) =================== */
 const FACE_CDN='https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/';
-let guard={tilt:false,cam:true},faces=[],camStream=null,looping=false,guardOn=false,gmode='in';
+let guard={tilt:false,cam:false},faces=[],camStream=null,looping=false,guardOn=false,gmode='in';
 let curtain=false,curtainT=null,tiltBad=false,faceBad=false,lastFaceOk=0,faceOkSince=0;
 const FACE_BACK_MS=1000;
 const ori={b:null,g:null,fb:0,fg:0,okSince:0};
 const TILT_ON=55,TILT_BACK=30; // degrees: hide past 55°, come back within 30° of where you held it
 
 function askPerms(){try{if(window.DeviceOrientationEvent&&typeof DeviceOrientationEvent.requestPermission==='function')DeviceOrientationEvent.requestPermission().catch(()=>{})}catch(e){}}
-function loadGuardCfg(){guard=Object.assign({cam:true,unlock:true},store.guard||{});guard.tilt=false} // face only – no movement detection
+function loadGuardCfg(){guard={tilt:false,cam:false,unlock:false}} // face only – no movement detection
 function saveGuardCfg(){store.guard=guard;persist()}
 async function loadFaces(){faces=[];if(store.face&&mkey){try{faces=JSON.parse(td.decode(await dec(mkey,store.face)))}catch(e){}}}
 async function saveFaces(){store.face=faces.length?await enc(mkey,te.encode(JSON.stringify(faces))):null;persist()}
@@ -873,28 +883,16 @@ function stopGuard(){awayLock=false;clearTimeout(awayT);guardOn=false;stopCam();
 /* leaving the app: short absence → puzzle + 3-finger swipe only; ≥1 min → questions again */
 const AWAY_MAX=60*1000;
 let awayLock=false,awayT=null,hiddenAt=0;
-function liftAway(){
+function liftAway(){setTimeout(saveResume,0);
   dropResume();if(!guardOn)startGuard('in');
   awayLock=false;clearTimeout(awayT);curtain=false;clearTimeout(curtainT);
   tiltBad=false;faceBad=false;ori.b=null;lastFaceOk=Date.now();
   $('game').classList.add('hidden');bump();
 }
-document.addEventListener('visibilitychange',()=>{
-  if(!mkey||gmode!=='in')return;
-  if(document.visibilityState==='hidden'){
-    hiddenAt=Date.now();awayLock=true;faceOkSince=0;saveResume();savePos();sel=-1;closeM();
-    $('game').classList.remove('hidden');clearTimeout(awayT);
-  }else{
-    dropResume();
-    if(Date.now()-hiddenAt>=AWAY_MAX){toGame();return}
-    clearTimeout(awayT);awayT=setTimeout(toGame,3*60*1000);
-    faceOkSince=0;lastFaceOk=Date.now();
-    if(guard.cam){startCam().then(ok=>{if(ok){loadFaceApi().then(faceLoop).catch(()=>{})}})}
-  }
-});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')saveResume()});
 
 /* settings sheet */
-$('guardBtn').onclick=async()=>{
+($('guardBtn')||{}).onclick=async()=>{
   closeM();$('gUnlock').checked=guard.unlock!==false;$('gCam').checked=guard.cam;
   $('faceBox').classList.toggle('hidden',!guard.cam);$('fStat').textContent='';
   openM('guardModal');
@@ -927,20 +925,20 @@ $('unenrollBtn').onclick=async()=>{if(!confirm('למחוק את רישום הפ�
 
 /* survive a page reload/tab discard during a short absence (key kept ≤1 min, this tab only) */
 const RESUME='bakala_resume';
-function saveResume(){if(mkey&&masterRaw&&gmode==='in'){try{sessionStorage.setItem(RESUME,JSON.stringify({m:b64(masterRaw),t:hiddenAt||Date.now(),cur:curId,y:scrollY}))}catch(e){}}}
+function saveResume(){if(mkey&&masterRaw&&gmode==='in'){try{sessionStorage.setItem(RESUME,JSON.stringify({m:b64(masterRaw),cur:curId,y:scrollY,h:awayLock}))}catch(e){}}}
 function dropResume(){try{sessionStorage.removeItem(RESUME)}catch(e){}}
-window.addEventListener('pagehide',()=>{if(mkey&&gmode==='in'){if(!awayLock){hiddenAt=Date.now();awayLock=true}saveResume()}});
+window.addEventListener('pagehide',saveResume);
 async function tryResume(){
   let r=null;try{r=JSON.parse(sessionStorage.getItem(RESUME))}catch(e){}
   dropResume();store=load();
-  if(!r||!store||store.v!==1||Date.now()-r.t>=AWAY_MAX)return;
+  if(!r||!store||store.v!==1)return;
   try{
     masterRaw=unb64(r.m);mkey=await aesKey(masterRaw);
     entries=store.vault?JSON.parse(td.decode(await dec(mkey,store.vault))):[];
-    gmode='in';awayLock=true;hiddenAt=r.t;
+    gmode='in';awayLock=!!r.h;
     if(r.cur&&entries.some(x=>x.id===r.cur)){curId=r.cur;renderDetail();show('detailView')}else{show('listView');renderList()}
     const y=r.y||0;setTimeout(()=>scrollTo(0,y),0);
-    awayT=setTimeout(toGame,3*60*1000);
+    $('game').classList.toggle('hidden',!r.h);
     await startGuard('in');faceOkSince=0;
   }catch(e){mkey=null;masterRaw=null;entries=[]}
 }
@@ -970,7 +968,7 @@ async function syncFaceUnlock(){
   }catch(e){}
 }
 function savePos(){try{localStorage.setItem(POS_KEY,JSON.stringify({cur:curId,y:scrollY,t:Date.now()}))}catch(e){}}
-async function bootFace(){
+async function bootFace(){return;
   if(mkey||manualLocked||document.visibilityState!=='visible')return;
   const raw=localStorage.getItem(FU_KEY);if(!raw)return;
   const gen=++bootGen;
@@ -1011,6 +1009,7 @@ document.addEventListener('visibilitychange',()=>{
 $('gUnlock').onchange=async e=>{guard.unlock=e.target.checked;saveGuardCfg();await syncFaceUnlock();toast(guard.unlock?'פתיחה עם הפנים פעילה':'כבוי')};
 
 /* =================== START =================== */
+try{localStorage.removeItem(FU_KEY)}catch(e){}
 document.querySelectorAll('[data-logo]').forEach(i=>i.src=LOGO);
 buildPuzzleImage(shuffle);
 tryResume().then(()=>{if(!mkey)bootFace()});
