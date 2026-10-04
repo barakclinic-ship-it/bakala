@@ -117,7 +117,8 @@ textarea.inp{min-height:96px;resize:vertical}
 
 /* fab */
 .fab{height:62px;padding:0 26px 0 22px;border-radius:20px;background:var(--tint2);color:#0b3a8c;font-weight:700;font-size:19px;display:flex;align-items:center;gap:10px;box-shadow:var(--shadow);z-index:6}
-.fabs{position:fixed;bottom:calc(24px + env(safe-area-inset-bottom));left:24px;display:flex;flex-direction:row-reverse;gap:12px;z-index:6}
+.fabs{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:min(calc(100% - 32px),440px);display:flex;gap:12px;z-index:6}
+.fabs .fab{flex:1;justify-content:center;padding:0 16px}
 .fab svg.i{width:26px;height:26px}
 
 /* sheets */
@@ -816,6 +817,7 @@ async function faceLoop(){
         if(ok){
           lastFaceOk=now;if(!faceOkSince)faceOkSince=now;
           // only my face, steadily for ~1s → back to the passwords (also clears a sharp-movement hide)
+          if(awayLock&&faces.length&&now-faceOkSince>=FACE_BACK_MS){liftAway();continue}
           if((faceBad||tiltBad)&&now-faceOkSince>=FACE_BACK_MS){faceBad=false;if(tiltBad){tiltBad=false;ori.b=null}evalGuard()}
         }else{
           faceOkSince=0;
@@ -855,13 +857,14 @@ function liftAway(){
 document.addEventListener('visibilitychange',()=>{
   if(!mkey||gmode!=='in')return;
   if(document.visibilityState==='hidden'){
-    hiddenAt=Date.now();awayLock=true;saveResume();sel=-1;closeM();
+    hiddenAt=Date.now();awayLock=true;faceOkSince=0;saveResume();sel=-1;closeM();
     $('game').classList.remove('hidden');clearTimeout(awayT);
   }else{
     dropResume();
     if(Date.now()-hiddenAt>=AWAY_MAX){toGame();return}
     clearTimeout(awayT);awayT=setTimeout(toGame,3*60*1000);
-    if(guard.cam){startCam().then(ok=>{if(ok)faceLoop()})}
+    faceOkSince=0;lastFaceOk=Date.now();
+    if(guard.cam){startCam().then(ok=>{if(ok){loadFaceApi().then(faceLoop).catch(()=>{})}})}
   }
 });
 
@@ -898,7 +901,7 @@ $('unenrollBtn').onclick=async()=>{if(!confirm('למחוק את רישום הפ�
 
 /* survive a page reload/tab discard during a short absence (key kept ≤1 min, this tab only) */
 const RESUME='bakala_resume';
-function saveResume(){if(mkey&&masterRaw&&gmode==='in'){try{sessionStorage.setItem(RESUME,JSON.stringify({m:b64(masterRaw),t:hiddenAt||Date.now()}))}catch(e){}}}
+function saveResume(){if(mkey&&masterRaw&&gmode==='in'){try{sessionStorage.setItem(RESUME,JSON.stringify({m:b64(masterRaw),t:hiddenAt||Date.now(),cur:curId,y:scrollY}))}catch(e){}}}
 function dropResume(){try{sessionStorage.removeItem(RESUME)}catch(e){}}
 window.addEventListener('pagehide',()=>{if(mkey&&gmode==='in'){if(!awayLock){hiddenAt=Date.now();awayLock=true}saveResume()}});
 async function tryResume(){
@@ -909,8 +912,10 @@ async function tryResume(){
     masterRaw=unb64(r.m);mkey=await aesKey(masterRaw);
     entries=store.vault?JSON.parse(td.decode(await dec(mkey,store.vault))):[];
     gmode='in';awayLock=true;hiddenAt=r.t;
-    show('listView');renderList();
+    if(r.cur&&entries.some(x=>x.id===r.cur)){curId=r.cur;renderDetail();show('detailView')}else{show('listView');renderList()}
+    const y=r.y||0;setTimeout(()=>scrollTo(0,y),0);
     awayT=setTimeout(toGame,3*60*1000);
+    await startGuard('in');faceOkSince=0;
   }catch(e){mkey=null;masterRaw=null;entries=[]}
 }
 
