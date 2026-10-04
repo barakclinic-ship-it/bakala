@@ -311,6 +311,7 @@ textarea.inp{min-height:96px;resize:vertical}
   <div class="grab"></div>
   <h2>זיהוי פנים</h2>
   <div class="tog"><span>מציג רק כשהפנים שלי מול המסך</span><input type="checkbox" class="sw" id="gCam"></div>
+  <div class="tog"><span>פתיחה עם הפנים – בלי שאלות</span><input type="checkbox" class="sw" id="gUnlock"></div>
   <div id="faceBox" class="hidden">
     <div class="camwrap" id="camWrap"><video id="camPrev" playsinline muted autoplay></video></div>
     <div class="fstat" id="fStat"></div>
@@ -403,6 +404,7 @@ function toGame(){
   $('fabs').classList.add('hidden');
   document.querySelectorAll('.inp').forEach(i=>i.value='');
   $('game').classList.remove('hidden');shuffle();
+  setTimeout(bootFace,300);
 }
 function openGate(){if(mkey&&gmode==='in'&&(awayLock||curtain)){liftAway();return}if(mkey)toGame();$('game').classList.add('hidden');store=load();if(store&&store.v===1)renderLogin();else renderSetup()}
 document.querySelectorAll('[data-togame]').forEach(b=>b.onclick=toGame);
@@ -520,7 +522,7 @@ async function saveVault(){store.vault=await enc(mkey,te.encode(JSON.stringify(e
 function openList(){show('listView');renderList();bump();if(!guardOn||gmode==='pre'){startGuard('in');checkMailBak()}}
 function bump(){clearTimeout(timer);if(mkey)timer=setTimeout(toGame,LOCK_MS)}
 ['click','keydown','touchstart','scroll'].forEach(ev=>document.addEventListener(ev,bump,{passive:true}));
-$('lockBtn').onclick=toGame;
+$('lockBtn').onclick=()=>{manualLocked=true;toGame()};
 
 function renderList(){
   const q=norm($('search').value);
@@ -731,14 +733,14 @@ $('bakFile').onchange=async ev=>{
     const d=JSON.parse(await f.text());
     if(!d||d.v!==1||!d.q||d.q.length!==5||!d.combos)throw 0;
     if(store&&!confirm('הגיבוי יחליף את מה שיש במכשיר. להמשיך?'))return;
-    store=d;persist();mkey=null;masterRaw=null;entries=[];renderLogin();toast('שוחזר – היכנס');
+    store=d;persist();localStorage.removeItem(FU_KEY);mkey=null;masterRaw=null;entries=[];renderLogin();toast('שוחזר – היכנס');
   }catch(e){alert('קובץ גיבוי לא תקין')}
 };
 $('resetBtn').onclick=()=>{
   closeM();
   if(!confirm('למחוק את כל הנתונים מהמכשיר? בלי גיבוי אין דרך חזרה.'))return;
   if(!confirm('בטוח לגמרי?'))return;
-  localStorage.removeItem(STORE);store=null;mkey=null;masterRaw=null;entries=[];renderSetup();
+  localStorage.removeItem(STORE);localStorage.removeItem(FU_KEY);store=null;mkey=null;masterRaw=null;entries=[];renderSetup();
 };
 
 /* =================== GUARD (auto-hide) =================== */
@@ -750,7 +752,7 @@ const ori={b:null,g:null,fb:0,fg:0,okSince:0};
 const TILT_ON=55,TILT_BACK=30; // degrees: hide past 55°, come back within 30° of where you held it
 
 function askPerms(){try{if(window.DeviceOrientationEvent&&typeof DeviceOrientationEvent.requestPermission==='function')DeviceOrientationEvent.requestPermission().catch(()=>{})}catch(e){}}
-function loadGuardCfg(){guard=Object.assign({cam:true},store.guard||{});guard.tilt=false} // face only – no movement detection
+function loadGuardCfg(){guard=Object.assign({cam:true,unlock:true},store.guard||{});guard.tilt=false} // face only – no movement detection
 function saveGuardCfg(){store.guard=guard;persist()}
 async function loadFaces(){faces=[];if(store.face&&mkey){try{faces=JSON.parse(td.decode(await dec(mkey,store.face)))}catch(e){}}}
 async function saveFaces(){store.face=faces.length?await enc(mkey,te.encode(JSON.stringify(faces))):null;persist()}
@@ -801,15 +803,15 @@ const scanRaw=()=>faceapi.detectAllFaces($('camv'),DET_OPTS()).withFaceLandmarks
 // never let a stuck frame (camera paused in background) freeze the loop
 const scan=()=>Promise.race([scanRaw(),new Promise(r=>setTimeout(()=>r(null),2000))]);
 const MATCH=.56;           // face distance below this = me
-function meDist(d){let m=9;for(const f of faces){const x=faceapi.euclideanDistance(f,d);if(x<m)m=x}return m}
-function classify(dets){
+function meDist(d,ref=faces){let m=9;for(const f of ref){const x=faceapi.euclideanDistance(f,d);if(x<m)m=x}return m}
+function classify(dets,ref=faces){
   // keep only real-size faces (ignore tiny background detections)
   const v=$('camv'),minW=(v.videoWidth||320)*.12;
   dets=dets.filter(d=>(d.detection?.box?.width??999)>=minW);
   if(!dets.length)return'none';
   if(dets.length>1)return'many';
-  if(!faces.length)return'me';
-  return meDist(dets[0].descriptor)<MATCH?'me':'other';
+  if(!ref.length)return'me';
+  return meDist(dets[0].descriptor,ref)<MATCH?'me':'other';
 }
 function faceStatus(c){
   if(!$('guardModal').classList.contains('on'))return;
@@ -863,7 +865,7 @@ async function startCamGuard(){
    mode 'in'  = unlocked (curtain that lifts when it's you again) */
 async function startGuard(mode){
   loadGuardCfg();
-  if(mode==='in')await loadFaces();else faces=[];
+  if(mode==='in'){await loadFaces();syncFaceUnlock()}else faces=[];
   gmode=mode;guardOn=true;tiltBad=false;faceBad=false;ori.b=null;lastFaceOk=Date.now();
   if(guard.cam){if(camStream&&looping)return;startCamGuard()}
 }
@@ -880,7 +882,7 @@ function liftAway(){
 document.addEventListener('visibilitychange',()=>{
   if(!mkey||gmode!=='in')return;
   if(document.visibilityState==='hidden'){
-    hiddenAt=Date.now();awayLock=true;faceOkSince=0;saveResume();sel=-1;closeM();
+    hiddenAt=Date.now();awayLock=true;faceOkSince=0;saveResume();savePos();sel=-1;closeM();
     $('game').classList.remove('hidden');clearTimeout(awayT);
   }else{
     dropResume();
@@ -893,7 +895,7 @@ document.addEventListener('visibilitychange',()=>{
 
 /* settings sheet */
 $('guardBtn').onclick=async()=>{
-  closeM();$('gCam').checked=guard.cam;
+  closeM();$('gUnlock').checked=guard.unlock!==false;$('gCam').checked=guard.cam;
   $('faceBox').classList.toggle('hidden',!guard.cam);$('fStat').textContent='';
   openM('guardModal');
   if(guard.cam&&camStream){$('camPrev').srcObject=camStream;$('camPrev').play().catch(()=>{})}
@@ -902,6 +904,7 @@ $('gCam').onchange=async e=>{
   guard.cam=e.target.checked;saveGuardCfg();$('faceBox').classList.toggle('hidden',!guard.cam);
   if(guard.cam){$('fStat').textContent='טוען…';if(!await startCamGuard()){guard.cam=false;e.target.checked=false;saveGuardCfg();$('faceBox').classList.add('hidden')}}
   else{stopCam();faceBad=false;evalGuard()}
+  syncFaceUnlock();
 };
 $('enrollBtn').onclick=async()=>{
   const b=$('enrollBtn');b.disabled=true;
@@ -916,11 +919,11 @@ $('enrollBtn').onclick=async()=>{
       await new Promise(r=>setTimeout(r,250));
     }
     if(got.length<6){toast('לא הצלחתי – נסה באור טוב יותר');}
-    else{faces=got;await saveFaces();lastFaceOk=Date.now();toast('הפנים נרשמו ✓')}
+    else{faces=got;await saveFaces();await syncFaceUnlock();lastFaceOk=Date.now();toast('הפנים נרשמו ✓')}
   }catch(e){toast('אין גישה למצלמה')}
   b.disabled=false;b.textContent='רישום הפנים שלי';
 };
-$('unenrollBtn').onclick=async()=>{if(!confirm('למחוק את רישום הפנים?'))return;faces=[];await saveFaces();toast('נמחק')};
+$('unenrollBtn').onclick=async()=>{if(!confirm('למחוק את רישום הפנים?'))return;faces=[];await saveFaces();await syncFaceUnlock();toast('נמחק')};
 
 /* survive a page reload/tab discard during a short absence (key kept ≤1 min, this tab only) */
 const RESUME='bakala_resume';
@@ -942,10 +945,75 @@ async function tryResume(){
   }catch(e){mkey=null;masterRaw=null;entries=[]}
 }
 
+/* =================== FACE UNLOCK (open straight from the puzzle) ===================
+   The master key + my face prints are kept on THIS device, sealed with a device-only key
+   that cannot be exported. Backups never contain it. */
+const FU_KEY='kodim_faceunlock_v1',POS_KEY='kodim_pos_v1';
+let manualLocked=false,bootGen=0;
+function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('bakala-dev',1);r.onupgradeneeded=()=>r.result.createObjectStore('k');r.onsuccess=()=>res(r.result);r.onerror=rej})}
+async function devKey(create){
+  const db=await idb();
+  const get=()=>new Promise(r=>{const q=db.transaction('k').objectStore('k').get('dk');q.onsuccess=()=>r(q.result);q.onerror=()=>r(null)});
+  let k=await get();
+  if(!k&&create){
+    k=await subtle.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+    await new Promise(r=>{const tx=db.transaction('k','readwrite');tx.objectStore('k').put(k,'dk');tx.oncomplete=r;tx.onerror=r});
+  }
+  return k||null;
+}
+async function syncFaceUnlock(){
+  try{
+    if(masterRaw&&guard.cam&&guard.unlock!==false&&faces.length){
+      const dk=await devKey(true);
+      localStorage.setItem(FU_KEY,JSON.stringify({f:await enc(dk,te.encode(JSON.stringify(faces))),m:await enc(dk,masterRaw)}));
+    }else localStorage.removeItem(FU_KEY);
+  }catch(e){}
+}
+function savePos(){try{localStorage.setItem(POS_KEY,JSON.stringify({cur:curId,y:scrollY,t:Date.now()}))}catch(e){}}
+async function bootFace(){
+  if(mkey||manualLocked||document.visibilityState!=='visible')return;
+  const raw=localStorage.getItem(FU_KEY);if(!raw)return;
+  const gen=++bootGen;
+  try{
+    const blob=JSON.parse(raw),dk=await devKey(false);if(!dk)return;
+    const ref=JSON.parse(td.decode(await dec(dk,blob.f)));
+    if(!await startCam())return;
+    await loadFaceApi();
+    let run=0;
+    while(gen===bootGen&&!mkey&&document.visibilityState==='visible'&&camStream){
+      if($('camv').readyState>=2){
+        const d=await scan();
+        if(gen!==bootGen||mkey)return;
+        if(d){run=classify(d,ref)==='me'?run+1:0;if(run>=3){await bootUnlock(await dec(dk,blob.m));return}}
+      }
+      await new Promise(r=>setTimeout(r,300));
+    }
+  }catch(e){}
+}
+async function bootUnlock(m){
+  store=load();if(!store)return;
+  masterRaw=m;mkey=await aesKey(m);
+  entries=store.vault?JSON.parse(td.decode(await dec(mkey,store.vault))):[];
+  localStorage.removeItem(FAILS);
+  $('game').classList.add('hidden');
+  let p=null;try{p=JSON.parse(localStorage.getItem(POS_KEY))}catch(e){}
+  if(p&&Date.now()-p.t<AWAY_MAX&&p.cur&&entries.some(x=>x.id===p.cur)){
+    curId=p.cur;renderDetail();show('detailView');bump();await startGuard('in');
+  }else{
+    openList();
+    if(p&&Date.now()-p.t<AWAY_MAX)setTimeout(()=>scrollTo(0,p.y||0),0);
+  }
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='hidden'){manualLocked=false;if(!mkey){bootGen++;stopCam()}}
+  else if(!mkey&&!$('game').classList.contains('hidden'))bootFace();
+});
+$('gUnlock').onchange=async e=>{guard.unlock=e.target.checked;saveGuardCfg();await syncFaceUnlock();toast(guard.unlock?'פתיחה עם הפנים פעילה':'כבוי')};
+
 /* =================== START =================== */
 document.querySelectorAll('[data-logo]').forEach(i=>i.src=LOGO);
 buildPuzzleImage(shuffle);
-tryResume();
+tryResume().then(()=>{if(!mkey)bootFace()});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
 </script>
