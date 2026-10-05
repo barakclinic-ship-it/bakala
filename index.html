@@ -10,8 +10,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="bakala">
 <link rel="manifest" href="manifest.json">
-<link rel="icon" type="image/png" href="icon.png">
-<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800&family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -86,6 +88,10 @@ textarea.inp{min-height:96px;resize:vertical}
 .item:active{background:var(--surface)}
 .av{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:21px;flex:none}
 .av.big{width:84px;height:84px;font-size:38px;margin:0 auto}
+.av{position:relative;overflow:hidden}
+.av .fav{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:18%;border-radius:50%;opacity:0}
+.av.hasfav .fav{opacity:1;background:#fff}
+.av.hasfav{box-shadow:inset 0 0 0 1px var(--line);background:#fff!important}
 .meta{flex:1;min-width:0}
 .meta .t{font-weight:500;font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .meta .u{color:var(--muted);font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:ltr;text-align:right}
@@ -274,6 +280,7 @@ textarea.inp{min-height:96px;resize:vertical}
   <button class="mrow" id="xlsIn"><span class="ic"><svg class="i"><use href="#i-sheet"/></svg></span>ייבוא מאקסל</button>
   <div class="sep"></div>
   <div class="tog" style="padding:12px 8px"><span>גיבוי אוטומטי בכל שמירה</span><input type="checkbox" class="sw" id="gBak"></div>
+  <button class="mrow hidden" id="installBtn"><span class="ic"><svg class="i"><use href="#i-down"/></svg></span>התקנה כאפליקציה</button>
   <button class="mrow" id="mailSet"><span class="ic"><svg class="i"><use href="#i-mail"/></svg></span>גיבוי אוטומטי למייל</button>
   <button class="mrow" id="mailBak"><span class="ic"><svg class="i"><use href="#i-mail"/></svg></span>שליחת גיבוי למייל</button>
   <button class="mrow" id="bakOut"><span class="ic"><svg class="i"><use href="#i-down"/></svg></span>גיבוי מוצפן</button>
@@ -456,7 +463,9 @@ function closeM(){document.querySelectorAll('.modal').forEach(m=>m.classList.rem
 document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m||e.target.closest('[data-close]'))closeM()}));
 
 const PAL=[['#e8f0fe','#1a56c4'],['#fde7f1','#c2185b'],['#e6f4ea','#137333'],['#fef7e0','#b06000'],['#f3e8fd','#8430ce'],['#e4f7fb','#007b83'],['#feefe3','#c26401']];
-function av(title,big){let h=0;for(const c of title)h=(h*31+c.charCodeAt(0))>>>0;const[bg,fg]=PAL[h%PAL.length];return`<div class="av${big?' big':''}" style="background:${bg};color:${fg}">${esc((title.trim()[0]||'?').toUpperCase())}</div>`}
+function av(title,big,url){let h=0;for(const c of title)h=(h*31+c.charCodeAt(0))>>>0;const[bg,fg]=PAL[h%PAL.length];return`<div class="av${big?' big':''}" style="background:${bg};color:${fg}">${esc((title.trim()[0]||'?').toUpperCase())}${siteIcon(url,big)}</div>`}
+/* site logo from the saved link (falls back to the letter if there's none) */
+function siteIcon(url,big){const d=host(url);if(!d)return'';const s=big?128:64;return`<img class="fav" alt="" referrerpolicy="no-referrer" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(d)}&sz=${s}" onload="if(this.naturalWidth<=16)this.remove();else this.parentNode.classList.add('hasfav')" onerror="this.remove()">`}
 
 /* answer fields with fixed question text */
 function ansFields(prefix,qs){
@@ -541,7 +550,7 @@ function renderList(){
   if(!list.length){$('list').innerHTML=`<div class="empty"><img src="${LOGO}" alt=""><div>${entries.length?'לא נמצא':'עדיין ריק'}</div></div>`;return}
   $('list').innerHTML=`<div class="list">${list.map(e=>`
     <div class="item" data-open="${e.id}">
-      ${av(e.title)}
+      ${av(e.title,false,e.url)}
       <div class="meta"><div class="t">${esc(e.title)}</div>${e.user||e.url?`<div class="u">${esc(e.user||host(e.url))}</div>`:''}</div>
       ${e.pass?`<button class="qcopy" data-copy="${e.id}" data-f="pass">${ico('copy')}העתק</button>`:''}
     </div>`).join('')}</div>`;
@@ -568,7 +577,7 @@ function openDetail(id){curId=id;renderDetail();show('detailView')}
 function renderDetail(){
   const e=entries.find(x=>x.id===curId);if(!e){show('listView');return}
   $('detail').innerHTML=`
-    <div class="dhead">${av(e.title,true)}<h2>${esc(e.title)}</h2></div>
+    <div class="dhead">${av(e.title,true,e.url)}<h2>${esc(e.title)}</h2></div>
     ${e.url?`<button class="gosite" id="goSite">${ico('link')}<span>כניסה לאתר${e.user?'<br><small>שם המשתמש יועתק</small>':''}</span></button>`:''}
     <div class="card">
       ${e.user?`<div class="frow"><div class="fx"><div class="lb">שם משתמש</div><div class="vl">${esc(e.user)}</div></div>
@@ -581,6 +590,7 @@ function renderDetail(){
     ${e.note?`<div class="card"><div class="frow"><div class="fx"><div class="lb">הערות</div><div class="vl note">${esc(e.note)}</div></div></div></div>`:''}
     <div class="dactions">
       <button class="ed" id="dEdit">${ico('edit')}עריכה</button>
+      <button class="ed" id="dDup">${ico('copy')}שכפול</button>
       <button class="del" id="dDel">${ico('trash')}מחיקה</button>
     </div>`;
   const go=$('goSite');
@@ -594,6 +604,7 @@ function renderDetail(){
   const eye=$('eyeBtn');
   if(eye)eye.onclick=()=>{const v=$('pv'),hid=v.textContent.startsWith('•');v.textContent=hid?e.pass:'••••••••••';eye.innerHTML=ico(hid?'eyeoff':'eye')};
   $('dEdit').onclick=()=>openEdit(e);
+  $('dDup').onclick=()=>openEdit(e,true);
   $('dDel').onclick=async()=>{
     if(!confirm(`למחוק את "${e.title}"?`))return;
     entries=entries.filter(x=>x.id!==e.id);await saveVault();curId=null;openList();toast('נמחק');autoBak();
@@ -609,11 +620,11 @@ function cleanUrl(u){
 }
 const host=u=>{try{return new URL(u).hostname.replace(/^www\./,'')}catch(e){return''}};
 const newId=()=>b64(rnd(9)).replace(/[^a-z0-9]/gi,'');
-function openEdit(e){
-  editingId=e?e.id:null;
-  $('editTitle').textContent=e?'עריכה':'חדש';
+function openEdit(e,dup){
+  editingId=e&&!dup?e.id:null;
+  $('editTitle').textContent=dup?'שכפול – שנה מה שצריך':e?'עריכה':'חדש';
   $('fTitle').value=e?e.title:'';$('fUrl').value=e?(e.url||''):'';$('fUser').value=e?e.user:'';$('fPass').value=e?e.pass:'';$('fNote').value=e?e.note:'';
-  openM('editModal');setTimeout(()=>$('fTitle').focus(),80);
+  openM('editModal');setTimeout(()=>{const f=dup?$('fUser'):$('fTitle');f.focus();if(dup)f.select()},80);
 }
 $('addBtn').onclick=()=>openEdit(null);
 $('bakBtn').onclick=async()=>{if(store.mailUrl){toast(await sendMail()?'גיבוי נשלח למייל ✓':'השליחה נכשלה')}else shareBak()};
@@ -621,7 +632,7 @@ $('genBtn').onclick=()=>{const cs='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuv
 $('saveBtn').onclick=async()=>{
   const title=$('fTitle').value.trim();if(!title){toast('חסר שם');$('fTitle').focus();return}
   const d={title,url:cleanUrl($('fUrl').value),user:$('fUser').value.trim(),pass:$('fPass').value,note:$('fNote').value.trim()};
-  if(editingId)Object.assign(entries.find(x=>x.id===editingId),d);else entries.push({id:newId(),...d});
+  if(editingId)Object.assign(entries.find(x=>x.id===editingId),d);else{const id=newId();entries.push({id,...d});if(curId)curId=id}
   await saveVault();closeM();toast('נשמר');autoBak();
   if(curId)renderDetail();else renderList();
 };
@@ -1013,7 +1024,12 @@ try{localStorage.removeItem(FU_KEY)}catch(e){}
 document.querySelectorAll('[data-logo]').forEach(i=>i.src=LOGO);
 buildPuzzleImage(shuffle);
 tryResume().then(()=>{if(!mkey)bootFace()});
-if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(()=>{})})}
+/* in-app install (like TIGER) */
+let installEvt=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvt=e;$('installBtn').classList.remove('hidden')});
+window.addEventListener('appinstalled',()=>{installEvt=null;$('installBtn').classList.add('hidden');toast('הותקן ✓')});
+$('installBtn').onclick=async()=>{closeM();if(!installEvt){toast('ההתקנה זמינה מתפריט הדפדפן');return}installEvt.prompt();try{await installEvt.userChoice}catch(e){}installEvt=null;$('installBtn').classList.add('hidden')};
 })();
 </script>
 </body>
